@@ -1,0 +1,34 @@
+.video-js {
+  .vjs-live-control {
+    margin: 0 5px;
+  }
+
+  .vjs-audio {
+    font-family: 'VideoJS';
+    cursor: pointer;
+    font-weight: normal;
+    font-style: normal;
+    color: #ffffff;
+
+    .vjs-icon-placeholder {
+      &::before {
+        content: "\f107";
+      }
+    }
+
+    &.vjs-audio-off {
+      // color: #ff0000;
+      .vjs-icon-placeholder {
+        &::before {
+          content: "\f104" !important;
+        }
+      }
+    }
+  }
+
+  .vjs-volume-tooltip {
+    display: none;
+  }
+
+  .vjs-tech{ pointer-events: none; }
+}

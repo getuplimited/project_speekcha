@@ -1,0 +1,70 @@
+.detail-page {
+
+    .video-header {
+        border-bottom: 1px solid #eee;
+        margin-bottom: 20px;
+        padding-bottom: 10px;
+
+        .vid-title {
+            margin: 15px 0 0;
+            font-size: 22px;
+            font-weight: 600;
+        }
+
+        .vid-duration {
+            display: flex;
+            align-items: center;
+
+            a {
+                color: #888;
+                margin-right: 15px;
+            }
+        }
+    }
+
+    .video-stats {
+        margin: 10px 0;
+        padding: 10px;
+        display: flex;
+        width: 30%;
+        align-items: center;
+        justify-content: left;
+
+        .ant-btn {
+            &.react-btn {
+                justify-content: center;
+                align-items: center;
+                flex-direction: column;
+                color: @primary-color;
+                background: transparent;
+                border: 1px solid;
+                margin: 5px;
+                border-radius: 10px;
+                padding: 5px 13px;
+                outline: none;
+                cursor: pointer;
+
+                .anticon {
+                    font-size: 16px;
+                }
+
+                &.active {
+                    color: #fff;
+                    background: @primary-color;
+                }
+            }
+        }
+
+        button {
+            width: 50%;
+            margin: 0 10px;
+        }
+
+        .act-btns {
+            display: flex;
+            width: 100%;
+            align-items: center;
+            padding: 5px 0;
+        }
+    }
+}

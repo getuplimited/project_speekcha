@@ -1,0 +1,355 @@
+/* eslint-disable no-return-assign */
+/* eslint-disable no-shadow */
+/* eslint-disable dot-notation */
+import React, { PureComponent } from 'react';
+import Head from 'next/head';
+import {
+  Row, Col, message, Button
+} from 'antd';
+import { connect } from 'react-redux';
+import { updateStreamingStatus } from '@redux/performer/actions';
+import UpdateSatusForm from '@components/performer/streaming-status-update-form';
+import { IPerformer, IUser } from 'src/interfaces';
+import { getResponseError } from '@lib/utils';
+import { streamService, messageService, performerService } from 'src/services';
+import Publisher from '@components/streaming/publisher';
+import { setStreaming } from '@redux/streaming/actions';
+import { SocketContext, Event } from 'src/socket';
+import {
+  getStreamConversation,
+  resetStreamMessage,
+  resetAllStreamMessage
+} from '@redux/stream-chat/actions';
+import './index.less';
+import { WEBRTC_INFO } from 'src/antmedia/constants';
+
+import ChatBox from '@components/stream-chat/chat-box';
+import SoundPlayer from 'src/components/common/base/sound';
+
+enum EVENT {
+  ROOM_INFORMATIOM_CHANGED = 'performer/public-room-changed',
+  ROOM_JOINED = 'joinedTheRoom',
+  TIPPED = 'tipped'
+}
+
+interface IProps {
+  resetStreamMessage: Function;
+  resetAllStreamMessage: Function;
+  getStreamConversation: Function;
+  performer: IPerformer;
+  updateStreamingStatus: Function;
+  setStreaming: Function;
+  updating: boolean;
+  updateSuccess: boolean;
+  updateError: any;
+  activeConversation: any;
+  tipSound: string;
+}
+
+interface IStates {
+  loading: boolean;
+  sessionId: string;
+  initialized: boolean;
+  total?: number;
+  members?: IUser[];
+  blockedUserIds?: string[];
+}
+
+// const Stream = dynamic(() => import('@components/streaming/publisher'), { ssr: false });
+
+class PerformerLivePage extends PureComponent<IProps, IStates> {
+  static authenticate = true;
+
+  private publisherRef: any;
+
+  private soundRef: any;
+
+  constructor(props) {
+    super(props);
+    this.state = {
+      loading: false,
+      initialized: false,
+      sessionId: '',
+      total: 0,
+      members: [],
+      blockedUserIds: []
+    };
+  }
+
+  componentDidMount() {
+    window.addEventListener('beforeunload', this.leavePublicRoom.bind(this));
+    this.joinPublicRoom();
+    this.getBlockedList();
+  }
+
+  componentDidUpdate(prevProps: IProps) {
+    const { updateSuccess, updateError } = this.props;
+    if (prevProps.updateSuccess !== updateSuccess && updateSuccess) {
+      message.success('Update Status Success.');
+    }
+
+    if (prevProps.updateError !== updateError && updateError) {
+      message.error(getResponseError(updateError));
+    }
+  }
+
+  componentWillUnmount() {
+    this.leavePublicRoom();
+    window.removeEventListener('beforeunload', this.leavePublicRoom.bind(this));
+  }
+
+  onStreamingStatusChange(data) {
+    const { updateStreamingStatus: dispatchUpdateStreamingStatus } = this.props;
+    dispatchUpdateStreamingStatus(data);
+  }
+
+  async getBlockedList() {
+    try {
+      const resp = await (await performerService.getBlockedList()).data;
+      this.setState({ blockedUserIds: resp.userIds });
+    } catch (e) {
+      console.log(e);
+    }
+  }
+
+  async joinPublicRoom() {
+    const { performer } = this.props;
+    const socket = this.context;
+    try {
+      this.setState({ loading: true });
+      const resp = await streamService.goLive();
+      this.setState({ sessionId: resp.data.sessionId });
+      const { getStreamConversation: dispatchGetStreamConversation } = this.props;
+      if (resp.data.conversation) {
+        await dispatchGetStreamConversation({
+          conversation: resp.data.conversation,
+          isPublic: true
+        });
+        socket.emit('join-private-room', {
+          userId: performer._id,
+          conversationId: resp.data.conversation._id
+        });
+      }
+    } catch (e) {
+      console.log('error_broadcast', await e);
+    } finally {
+      this.setState({ loading: false });
+    }
+  }
+
+  leavePublicRoom() {
+    const { activeConversation, performer, resetStreamMessage } = this.props;
+    const socket = this.context;
+    if (!socket) return;
+    socket.emit('left-broadcast', { performerId: performer._id });
+    if (activeConversation) {
+      socket.emit('leave-private-room', {
+        userId: performer._id,
+        conversationId: activeConversation.data
+          ? activeConversation.data._id
+          : '',
+        isPublic: true
+      });
+      resetStreamMessage();
+    }
+  }
+
+  async start() {
+    const { performer } = this.props;
+    const { initialized, sessionId } = this.state;
+    if (performer && performer.status === 'inactive') {
+      message.error('Your account is deactivated');
+      return;
+    }
+    this.setState({ loading: true });
+    if (!performer._id) {
+      window.location.reload();
+      return;
+    }
+    if (initialized && window['webRTCAdaptor']) {
+      window['webRTCAdaptor'].publish(sessionId);
+      return;
+    }
+
+    this.publisherRef && this.publisherRef.start();
+  }
+
+  callback(info: WEBRTC_INFO) {
+    const { performer } = this.props;
+    const { sessionId } = this.state;
+    const socket = this.context;
+    if (info === WEBRTC_INFO.INITIALIZED) {
+      this.setState({ initialized: true });
+      window['webRTCAdaptor'].publish(sessionId);
+    } else if (info === 'publish_started') {
+      socket.emit('join-broadcast', { performerId: performer._id });
+      this.setState({ loading: false });
+    } else if (info === 'publish_finished') {
+      this.setState({ loading: false });
+    } else if (info === 'closed') {
+      this.setState({ loading: false });
+    }
+  }
+
+  handler({ total, members }) {
+    this.setState({ total, members });
+  }
+
+  roomJoinedHandler({ total, members }) {
+    this.setState({ total, members });
+  }
+
+  async removeAllMessage() {
+    const { activeConversation, performer, resetAllStreamMessage } = this.props;
+
+    if (
+      !activeConversation.data
+      || performer._id !== activeConversation.data.performerId
+    ) {
+      return;
+    }
+    try {
+      if (!window.confirm('Are you sure you want to remove chat history?')) {
+        return;
+      }
+      const resp = await messageService.deleteAllMessageInConversation(
+        activeConversation.data._id
+      );
+      resp.data
+        && resp.data.success
+        && resetAllStreamMessage({ conversationId: activeConversation.data._id });
+    } catch (e) {
+      console.log(await e);
+    }
+  }
+
+  async blockUser(id: string) {
+    if (!window.confirm('Are you sure to block this user?')) return;
+    try {
+      let { blockedUserIds } = this.state;
+      const { members, total } = this.state;
+      blockedUserIds = [...blockedUserIds, id];
+      await performerService.geoBlock({ userIds: blockedUserIds });
+      this.setState({
+        blockedUserIds,
+        total: total - 1,
+        members: members.filter((m) => m._id !== id)
+      });
+    } catch (e) {
+      console.log('block_err', e);
+      message.error('Something went wrong, please try again later');
+    }
+  }
+
+  handleTipped({ token, senderInfo }) {
+    message.success(`${senderInfo.username} tip ${token?.toFixed(2)} tokens`);
+    this.soundRef && this.soundRef.play();
+  }
+
+  render() {
+    const {
+      performer, updating, activeConversation, tipSound
+    } = this.props;
+    const {
+      loading,
+      initialized,
+      sessionId,
+      members,
+      total,
+      blockedUserIds
+    } = this.state;
+    return (
+      <>
+        <Head>
+          <title>Go Live</title>
+        </Head>
+        <SoundPlayer ref={(ref) => (this.soundRef = ref)} soundUrl={tipSound} />
+        <Event
+          event={EVENT.ROOM_INFORMATIOM_CHANGED}
+          handler={this.handler.bind(this)}
+        />
+        <Event
+          event={EVENT.ROOM_JOINED}
+          handler={this.roomJoinedHandler.bind(this)}
+        />
+        <Event event={EVENT.TIPPED} handler={this.handleTipped.bind(this)} />
+        <Row>
+          <Col xs={24} sm={24} md={12}>
+            <UpdateSatusForm
+              status={performer.streamingTitle}
+              updating={updating}
+              onStreamingStatusChange={this.onStreamingStatusChange.bind(this)}
+            />
+            {!initialized && (
+              <Button
+                type="primary"
+                onClick={this.start.bind(this)}
+                loading={loading}
+                style={{
+                  width: '100%',
+                  marginTop: 10
+                }}
+              >
+                Start Streaming
+              </Button>
+            )}
+            <Publisher
+              participantId={performer._id}
+              sessionId={sessionId}
+              ref={(ref) => (this.publisherRef = ref)}
+              callback={this.callback.bind(this)}
+              configs={{
+                debug: true,
+                bandwidth: 900,
+                localVideoId: 'publisher',
+                appName: 'WebRTCApp'
+              }}
+            />
+          </Col>
+          <Col xs={24} sm={24} md={12} style={{ paddingLeft: '10px' }}>
+            <ChatBox
+              {...this.props}
+              currentPerformer={performer}
+              isPublic
+              members={members}
+              totalParticipant={total}
+              blockedUserIds={blockedUserIds}
+              blockUser={this.blockUser.bind(this)}
+            />
+            {activeConversation && activeConversation.data && (
+              <div style={{ margin: '10px' }}>
+                <Button
+                  type="primary"
+                  onClick={this.removeAllMessage.bind(this)}
+                >
+                  Clear message history
+                </Button>
+              </div>
+            )}
+          </Col>
+        </Row>
+      </>
+    );
+  }
+}
+
+PerformerLivePage.contextType = SocketContext;
+
+const mapStateToProps = (state) => ({
+  performer: state.performer.current,
+  tipSound: state.settings.tipSound,
+  updating: state.performer.updating,
+  updateSuccess: state.performer.updateSuccess,
+  updateError: state.performer.updateError,
+  loggedIn: state.auth.loggedIn,
+  ...state.streaming,
+  activeConversation: state.streamMessage.activeConversation
+});
+const mapDispatchs = {
+  updateStreamingStatus,
+  setStreaming,
+  getStreamConversation,
+  resetStreamMessage,
+  resetAllStreamMessage
+};
+export default connect(mapStateToProps, mapDispatchs)(PerformerLivePage);

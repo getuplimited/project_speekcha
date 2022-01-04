@@ -1,0 +1,36 @@
+.conversation-stream {
+  min-height: 530px;
+  border: solid 1px @primary-color;
+  border-radius: 15px;
+  margin: 0 15px;
+
+  .tablist {
+    margin: 0;
+  }
+  .ant-tabs > .ant-tabs-nav, .ant-tabs > div > .ant-tabs-nav {
+    margin: 0 !important;
+  }
+  .ant-tabs-nav-list {
+    width: 100%;
+    overflow: hidden;
+    .ant-tabs-tab {
+      width: 50%;
+      justify-content: center;
+      margin: 0 0.1px;
+      height: 50px;
+      &:first-child {
+        border-top-left-radius: 12px;
+      }
+      &:nth-child(2) {
+        border-top-right-radius: 12px;
+      }
+    }
+    .ant-tabs-tab-active {
+      background-color: @primary-color;
+      color: #ffffff;
+      .ant-tabs-tab-btn {
+        color: #fff;
+      }
+    }
+  }
+}
